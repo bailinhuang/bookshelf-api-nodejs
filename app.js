@@ -6,9 +6,10 @@ const port = 3001
 const hostname = '127.0.0.1'
 const jwt = require('jsonwebtoken')
 const uuid = require('uuid')
-const SECRET_KEY = 'wutup' 
+const SECRET_KEY = 'wutup'
 let books = new Map()
 let users = new Map()
+let sessions = new Map()
 let book
 let index
 let token
@@ -19,12 +20,16 @@ app.use(cors())
 
 const verifyToken = (req, res, next) => {
 
-  const { headers } = req
-  const token = headers['auth-token']
-  try {
-    jwt.verify(token, SECRET_KEY, { maxAge: 300000 })
+  try { 
+    const { headers } = req
+    const token = headers['auth-token']
+    jwt.verify(token, SECRET_KEY) 
+    const decoded = jwt.decode(token)
+    const customer = decoded.customer
+    req.customer = customer
     next()
   } catch (err) {
+    res.send(err)
     res.status(401).end()
   }
 }
@@ -40,13 +45,13 @@ app.post('/v2', (req, res) => {
 })
 
 //GET ALL BOOKSHELF
-app.get('/v2/book', (req, res) => {
+app.get('/v2/book', verifyToken, (req, res) => {
   const { headers } = req
   const token = headers['auth-token']
   const decoded = jwt.decode(token)
   const customer = decoded.customer
-  id = req.body.id 
-  customer_bookshelf = books.get(customer) 
+  id = req.body.id
+  customer_bookshelf = books.get(customer)
   res.setHeader('Content-type', 'application/json')
   res.send(customer_bookshelf)
 })
@@ -62,20 +67,20 @@ app.post('/v2/book', verifyToken, (req, res) => {
     id: id,
     name: req.body.name,
     author: req.body.author
-  } 
+  }
   books.get(customer).push(book)
   res.setHeader('Content-type', 'application/json')
   res.send(books)
 })
 
 //UPDATE A BOOK
-app.put('/v2/book/:id', (req, res) => {
+app.put('/v2/book/:id', verifyToken, (req, res) => {
   const { headers } = req
   const token = headers['auth-token']
   const decoded = jwt.decode(token)
   const customer = decoded.customer
-  id = req.params.id 
-  bookshelf = books.get(customer) 
+  id = req.params.id
+  bookshelf = books.get(customer)
   index = bookshelf.findIndex(x => x.id === id)
   book = bookshelf[index]
   book.name = req.body.name
@@ -86,13 +91,13 @@ app.put('/v2/book/:id', (req, res) => {
 })
 
 //DELETE A BOOK
-app.delete('/v2/book/:id', (req, res) => {
+app.delete('/v2/book/:id', verifyToken, (req, res) => {
   const { headers } = req
   const token = headers['auth-token']
   const decoded = jwt.decode(token)
   const customer = decoded.customer
-  id = req.params.id 
-  bookshelf = books.get(customer) 
+  id = req.params.id
+  bookshelf = books.get(customer)
   index = bookshelf.findIndex(x => x.id === id)
   bookshelf.splice(index, 1)
   res.setHeader('Content-type', 'application/json')
@@ -106,41 +111,50 @@ app.post('/v2/user', (req, res) => {
     password: req.body.password,
     customer: req.body.customer
   }
-  token = {
-    token: jwt.sign(user, SECRET_KEY)
+  users.set(user.username, user)
+  books.set(user.customer, [])
+  let val = sessions.get(user.customer)
+  if (val === undefined) {
+    sessions.set(user.customer, [])
   }
-  users.set(user.username, user) 
-  books.set(user.customer, []) 
   res.setHeader('Content-type', 'application/json')
-  res.send(token)
 })
 
 //LOGIN A USER AND RETURNS TOKEN
-app.post('/v2/user/login', (req, res) => { 
-  const customer = users.get(req.body.username).customer 
+app.post('/v2/user/login', (req, res) => {
+  const customer = users.get(req.body.username).customer
   const user = {
     // username: req.body.username,
     // password: req.body.password,
     customer: customer
   }
   token = {
-    token: jwt.sign(user, SECRET_KEY, { expiresIn: '300000' })
+    token: jwt.sign(user, SECRET_KEY, { expiresIn: 60 * 5 })
   }
+  sessions.get(customer).push({'token': token.token, 'dateCreated' : new Date().toString()})
   res.setHeader('Content-type', 'application/json')
   res.send(token)
 })
 
 //RENEW TOKEN
-app.post('/v2/user/renew', (req, res) => {
+app.post('/v2/user/renew', verifyToken, (req, res) => {
   const user = {
     username: req.body.username,
     password: req.body.password,
   }
   token = {
-    token: jwt.sign(user, SECRET_KEY, { expiresIn: '300000' })
+    token: jwt.sign(user, SECRET_KEY, { expiresIn: 60 * 5 })
   }
+  sessions.get(customer).push({'token': token.token, 'dateCreated': new Date().toString()})
   res.setHeader('Content-type', 'application/json')
   res.send(token)
+})
+
+//ALL TOKENS FROM THE SESSIONS
+app.get('/v2/sessions', verifyToken, (req, res) => {
+  let customer_sessions = sessions.get(req.customer)
+  res.setHeader('Content-type', 'application/json')
+  res.send(customer_sessions)
 })
 
 
